@@ -24,6 +24,9 @@
 /* v0.0.0 - v(OR).(dev test ver).(dev ver) */
 #define VER "v0.0.1"
 
+//Blink LED to show saved tally number
+void blinkTallyNo(uint8_t tallyNo);
+
 //Perform initial setup on power on
 //Handle the change of states in the program
 void changeState(uint8_t stateToChangeTo);

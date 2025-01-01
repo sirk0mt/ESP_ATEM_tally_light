@@ -163,6 +163,18 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password)
 
 }
 
+void blinkTallyNo(uint8_t tallyNo) {
+    setLED(LED_OFF);
+
+    for (int i = 0; i < tallyNo + 1; i++) {
+        delay(250);
+        setLED(LED_BLUE);
+        delay(250);
+        setLED(LED_OFF);
+    }
+    delay(500);
+}
+
 //Perform initial setup on power on
 void setup() {
     //Init pins for LED
@@ -170,7 +182,6 @@ void setup() {
     pinMode(PIN_GREEN, OUTPUT);
     pinMode(PIN_BLUE, OUTPUT);
 
-    setLED(LED_YELLOW);
     //Setup current-measuring pin - Commented out for users without batteries
     // pinMode(A0, INPUT);
 
@@ -182,6 +193,10 @@ void setup() {
     //Read settings from EEPROM. WIFI settings are stored separately by the ESP
     EEPROM.begin(sizeof(settings)); //Needed on ESP8266 module, as EEPROM lib works a bit differently than on a regular Arduino
     EEPROM.get(0, settings);
+
+    blinkTallyNo(settings.tallyNo);
+
+    setLED(LED_YELLOW);
 
     Serial.println(settings.tallyName);
 
