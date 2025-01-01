@@ -21,6 +21,9 @@
 #include "Arduino.h"
 #include "ImprovWiFiLibrary.h"
 
+/* v0.0.0 - v(OR).(dev test ver).(dev ver) */
+#define VER "v0.0.1"
+
 //Perform initial setup on power on
 //Handle the change of states in the program
 void changeState(uint8_t stateToChangeTo);
@@ -28,26 +31,10 @@ void changeState(uint8_t stateToChangeTo);
 //Set the color of both LEDs
 void setBothLEDs(uint8_t color);
 
-//Set the color of the 1st LED
-void setLED1(uint8_t color);
-
-//Set the color of the 2nd LED
-void setLED2(uint8_t color);
-
-//Set the color of a LED using the given pins
-void setLED(uint8_t color, int pinRed, int pinGreen, int pinBlue);
+//Set the color of LED
+void setLED(uint8_t color);
 
 void analogWriteWrapper(uint8_t pin, uint8_t value);
-
-//Set the color of the LED strip, except for the status LED
-void setSTRIP(uint8_t color);
-
-//Set the single status LED (last LED)
-void setStatusLED(uint8_t color);
-
-#ifdef DEBUG_LED_STRIP
-void printLeds();
-#endif
 
 int getTallyState(uint16_t tallyNo);
 

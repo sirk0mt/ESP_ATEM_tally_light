@@ -54,53 +54,31 @@
 #include <EEPROM.h>
 #include <ATEMmin.h>
 #include <TallyServer.h>
-#include <FastLED.h>
 
 #if ESP32
 //Define LED1 color pins
-#ifndef PIN_RED1
-#define PIN_RED1   32
+#ifndef PIN_RED
+#define PIN_RED   32
 #endif
-#ifndef PIN_GREEN1
-#define PIN_GREEN1 33
+#ifndef PIN_GREEN
+#define PIN_GREEN 33
 #endif
-#ifndef PIN_BLUE1
-#define PIN_BLUE1  25
-#endif
-
-//Define LED2 color pins
-#ifndef PIN_RED2
-#define PIN_RED2   26
-#endif
-#ifndef PIN_GREEN2
-#define PIN_GREEN2 27
-#endif
-#ifndef PIN_BLUE2
-#define PIN_BLUE2  14
+#ifndef PIN_BLUE
+#define PIN_BLUE  25
 #endif
 
 #else // ESP8266
 //Define LED1 color pins
-#ifndef PIN_RED1
-#define PIN_RED1    16 // D0
+#ifndef PIN_RED
+#define PIN_RED    16 // D0
 #endif
-#ifndef PIN_GREEN1
-#define PIN_GREEN1  4  // D2
+#ifndef PIN_GREEN
+#define PIN_GREEN  4  // D2
 #endif
-#ifndef PIN_BLUE1
-#define PIN_BLUE1   5  // D1
+#ifndef PIN_BLUE
+#define PIN_BLUE   5  // D1
 #endif
 
-//Define LED2 color pins
-#ifndef PIN_RED2
-#define PIN_RED2    2  // D4
-#endif
-#ifndef PIN_GREEN2
-#define PIN_GREEN2  14 // D5
-#endif
-#ifndef PIN_BLUE2
-#define PIN_BLUE2   12 // D6
-#endif
 #endif
 
 //Define LED colors
@@ -112,9 +90,6 @@
 #define LED_PINK    5
 #define LED_WHITE   6
 #define LED_ORANGE  7
-
-//Map "old" LED colors to CRGB colors
-CRGB color_led[8] = { CRGB::Black, CRGB::Red, CRGB::Lime, CRGB::Blue, CRGB::Yellow, CRGB::Fuchsia, CRGB::White, CRGB::Orange };
 
 //Define states
 #define STATE_STARTING                  0
@@ -131,28 +106,6 @@ CRGB color_led[8] = { CRGB::Black, CRGB::Red, CRGB::Lime, CRGB::Blue, CRGB::Yell
 #define TALLY_FLAG_OFF                  0
 #define TALLY_FLAG_PROGRAM              1
 #define TALLY_FLAG_PREVIEW              2
-
-//Define Neopixel status-LED options
-#define NEOPIXEL_STATUS_FIRST           1
-#define NEOPIXEL_STATUS_LAST            2
-#define NEOPIXEL_STATUS_NONE            3
-
-//FastLED
-#ifndef TALLY_DATA_PIN
-#if ESP32
-#define TALLY_DATA_PIN    12
-#elif ARDUINO_ESP8266_NODEMCU
-#define TALLY_DATA_PIN    7
-#else
-#define TALLY_DATA_PIN    13 // D7
-#endif
-#endif
-int numTallyLEDs;
-int numStatusLEDs;
-CRGB *leds;
-CRGB *tallyLEDs;
-CRGB *statusLED;
-bool neopixelsUpdated = false;
 
 //Initialize global variables
 #if ESP32
@@ -177,16 +130,12 @@ uint8_t state = STATE_STARTING;
 struct Settings {
     char tallyName[32] = "";
     uint8_t tallyNo;
-    uint8_t tallyModeLED1;
-    uint8_t tallyModeLED2;
+    uint8_t tallyModeLED;
     bool staticIP;
     IPAddress tallyIP;
     IPAddress tallySubnetMask;
     IPAddress tallyGateway;
     IPAddress switcherIP;
-    uint16_t neopixelsAmount;
-    uint8_t neopixelStatusLEDOption;
-    uint8_t neopixelBrightness;
     uint8_t ledBrightness;
 };
 
@@ -217,15 +166,11 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password)
 //Perform initial setup on power on
 void setup() {
     //Init pins for LED
-    pinMode(PIN_RED1, OUTPUT);
-    pinMode(PIN_GREEN1, OUTPUT);
-    pinMode(PIN_BLUE1, OUTPUT);
+    pinMode(PIN_RED, OUTPUT);
+    pinMode(PIN_GREEN, OUTPUT);
+    pinMode(PIN_BLUE, OUTPUT);
 
-    pinMode(PIN_RED2, OUTPUT);
-    pinMode(PIN_GREEN2, OUTPUT);
-    pinMode(PIN_BLUE2, OUTPUT);
-
-    setBothLEDs(LED_BLUE);
+    setLED(LED_YELLOW);
     //Setup current-measuring pin - Commented out for users without batteries
     // pinMode(A0, INPUT);
 
@@ -237,37 +182,6 @@ void setup() {
     //Read settings from EEPROM. WIFI settings are stored separately by the ESP
     EEPROM.begin(sizeof(settings)); //Needed on ESP8266 module, as EEPROM lib works a bit differently than on a regular Arduino
     EEPROM.get(0, settings);
-
-    //Initialize LED strip
-    if (0 < settings.neopixelsAmount && settings.neopixelsAmount <= 1000) {
-        leds = new CRGB[settings.neopixelsAmount];
-        FastLED.addLeds<NEOPIXEL, TALLY_DATA_PIN>(leds, settings.neopixelsAmount);
-
-        if (settings.neopixelStatusLEDOption != NEOPIXEL_STATUS_NONE) {
-            numStatusLEDs = 1;
-            numTallyLEDs = settings.neopixelsAmount - numStatusLEDs;
-            if (settings.neopixelStatusLEDOption == NEOPIXEL_STATUS_FIRST) {
-                statusLED = leds;
-                tallyLEDs = leds + numStatusLEDs;
-            } else { // if last or or other value
-                statusLED = leds + numTallyLEDs;
-                tallyLEDs = leds;
-            }
-        } else {
-            numTallyLEDs = settings.neopixelsAmount;
-            numStatusLEDs = 0;
-            tallyLEDs = leds;
-        }
-    } else {
-        settings.neopixelsAmount = 0;
-        numTallyLEDs = 0;
-        numStatusLEDs = 0;
-    }
-
-    FastLED.setBrightness(settings.neopixelBrightness);
-    setSTRIP(LED_OFF);
-    setStatusLED(LED_BLUE);
-    FastLED.show();
 
     Serial.println(settings.tallyName);
 
@@ -347,10 +261,10 @@ void loop() {
             } else if (firstRun) {
                 firstRun = false;
                 Serial.println("Unable to connect. Serving \"Tally Light setup\" WiFi for configuration, while still trying to connect...");
+                Serial.println("IP for that device in \"Tally Light setup\" WiFi network is 192.168.4.1");
                 WiFi.softAP((String)DISPLAY_NAME + " setup");
                 WiFi.mode(WIFI_AP_STA); // Enable softAP to access web interface in case of no WiFi
-                setBothLEDs(LED_WHITE);
-                setStatusLED(LED_WHITE);
+                setLED(LED_WHITE);
             }
             break;
 #ifndef TALLY_TEST_SERVER
@@ -414,13 +328,9 @@ void loop() {
             //Handle Tally Server
             tallyServer.runLoop();
 
-            //Set LED and Neopixel colors accordingly
-            int color = getLedColor(settings.tallyModeLED1, settings.tallyNo);
-            setLED1(color);
-            setSTRIP(color);
-
-            color = getLedColor(settings.tallyModeLED2, settings.tallyNo);
-            setLED2(color);
+            //Set LED colors accordingly
+            int color = getLedColor(settings.tallyModeLED, settings.tallyNo);
+            setLED(color);
 
 #ifndef TALLY_TEST_SERVER
             //Switch state if ATEM connection is lost...
@@ -455,15 +365,6 @@ void loop() {
         tallyServer.resetTallyFlags();
     }
 
-    //Show strip only on updates
-    if(neopixelsUpdated) {
-        FastLED.show();
-#ifdef DEBUG_LED_STRIP
-        Serial.println("Updated LEDs");
-#endif
-        neopixelsUpdated = false;
-    }
-
     //Handle web interface
     server.handleClient();
 }
@@ -474,78 +375,57 @@ void changeState(uint8_t stateToChangeTo) {
     switch (stateToChangeTo) {
         case STATE_CONNECTING_TO_WIFI:
             state = STATE_CONNECTING_TO_WIFI;
-            setBothLEDs(LED_BLUE);
-            setStatusLED(LED_BLUE);
-            setSTRIP(LED_OFF);
+            setLED(LED_BLUE);
             break;
         case STATE_CONNECTING_TO_SWITCHER:
             state = STATE_CONNECTING_TO_SWITCHER;
-            setBothLEDs(LED_PINK);
-            setStatusLED(LED_PINK);
-            setSTRIP(LED_OFF);
+            setLED(LED_PINK);
             break;
         case STATE_RUNNING:
             state = STATE_RUNNING;
-            setBothLEDs(LED_GREEN);
-            setStatusLED(LED_ORANGE);
+            setLED(LED_GREEN);
             break;
     }
 }
 
-//Set the color of both LEDs
-void setBothLEDs(uint8_t color) {
-    setLED(color, PIN_RED1, PIN_GREEN1, PIN_BLUE1);
-    setLED(color, PIN_RED2, PIN_GREEN2, PIN_BLUE2);
-}
-
-//Set the color of the 1st LED
-void setLED1(uint8_t color) {
-    setLED(color, PIN_RED1, PIN_GREEN1, PIN_BLUE1);
-}
-
-//Set the color of the 2nd LED
-void setLED2(uint8_t color) {
-    setLED(color, PIN_RED2, PIN_GREEN2, PIN_BLUE2);
-}
-
 //Set the color of a LED using the given pins
-void setLED(uint8_t color, int pinRed, int pinGreen, int pinBlue) {
+void setLED(uint8_t color) {
 #if ESP32
     switch (color) {
         case LED_OFF:
-            digitalWrite(pinRed, 0);
-            digitalWrite(pinGreen, 0);
-            digitalWrite(pinBlue, 0);
+            digitalWrite(PIN_RED, 0);
+            digitalWrite(PIN_GREEN, 0);
+            digitalWrite(PIN_BLUE, 0);
             break;
         case LED_RED:
-            digitalWrite(pinRed, 1);
-            digitalWrite(pinGreen, 0);
-            digitalWrite(pinBlue, 0);
+            digitalWrite(PIN_RED, 1);
+            digitalWrite(PIN_GREEN, 0);
+            digitalWrite(PIN_BLUE, 0);
             break;
         case LED_GREEN:
-            digitalWrite(pinRed, 0);
-            digitalWrite(pinGreen, 1);
-            digitalWrite(pinBlue, 0);
+            digitalWrite(PIN_RED, 0);
+            digitalWrite(PIN_GREEN, 1);
+            digitalWrite(PIN_BLUE, 0);
             break;
         case LED_BLUE:
-            digitalWrite(pinRed, 0);
-            digitalWrite(pinGreen, 0);
-            digitalWrite(pinBlue, 1);
+            digitalWrite(PIN_RED, 0);
+            digitalWrite(PIN_GREEN, 0);
+            digitalWrite(PIN_BLUE, 1);
             break;
         case LED_YELLOW:
-            digitalWrite(pinRed, 1);
-            digitalWrite(pinGreen, 1);
-            digitalWrite(pinBlue, 0);
+            digitalWrite(PIN_RED, 1);
+            digitalWrite(PIN_GREEN, 1);
+            digitalWrite(PIN_BLUE, 0);
             break;
         case LED_PINK:
-            digitalWrite(pinRed, 1);
-            digitalWrite(pinGreen, 0);
-            digitalWrite(pinBlue, 1);
+            digitalWrite(PIN_RED, 1);
+            digitalWrite(PIN_GREEN, 0);
+            digitalWrite(PIN_BLUE, 1);
             break;
         case LED_WHITE:
-            digitalWrite(pinRed, 1);
-            digitalWrite(pinGreen, 1);
-            digitalWrite(pinBlue, 1);
+            digitalWrite(PIN_RED, 1);
+            digitalWrite(PIN_GREEN, 1);
+            digitalWrite(PIN_BLUE, 1);
             break;
     }
 #else
@@ -560,39 +440,39 @@ void setLED(uint8_t color, int pinRed, int pinGreen, int pinBlue) {
 
     switch (color) {
         case LED_OFF:
-            digitalWrite(pinRed, 0);
-            digitalWrite(pinGreen, 0);
-            digitalWrite(pinBlue, 0);
+            digitalWrite(PIN_RED, 0);
+            digitalWrite(PIN_GREEN, 0);
+            digitalWrite(PIN_BLUE, 0);
             break;
         case LED_RED:
-            writeFunc(pinRed, ledBrightness);
-            digitalWrite(pinGreen, 0);
-            digitalWrite(pinBlue, 0);
+            writeFunc(PIN_RED, ledBrightness);
+            digitalWrite(PIN_GREEN, 0);
+            digitalWrite(PIN_BLUE, 0);
             break;
         case LED_GREEN:
-            digitalWrite(pinRed, 0);
-            writeFunc(pinGreen, ledBrightness);
-            digitalWrite(pinBlue, 0);
+            digitalWrite(PIN_RED, 0);
+            writeFunc(PIN_GREEN, ledBrightness);
+            digitalWrite(PIN_BLUE, 0);
             break;
         case LED_BLUE:
-            digitalWrite(pinRed, 0);
-            digitalWrite(pinGreen, 0);
-            writeFunc(pinBlue, ledBrightness);
+            digitalWrite(PIN_RED, 0);
+            digitalWrite(PIN_GREEN, 0);
+            writeFunc(PIN_BLUE, ledBrightness);
             break;
         case LED_YELLOW:
-            writeFunc(pinRed, ledBrightness);
-            writeFunc(pinGreen, ledBrightness);
-            digitalWrite(pinBlue, 0);
+            writeFunc(PIN_RED, ledBrightness);
+            writeFunc(PIN_GREEN, ledBrightness);
+            digitalWrite(PIN_BLUE, 0);
             break;
         case LED_PINK:
-            writeFunc(pinRed, ledBrightness);
-            digitalWrite(pinGreen, 0);
-            writeFunc(pinBlue, ledBrightness);
+            writeFunc(PIN_RED, ledBrightness);
+            digitalWrite(PIN_GREEN, 0);
+            writeFunc(PIN_BLUE, ledBrightness);
             break;
         case LED_WHITE:
-            writeFunc(pinRed, ledBrightness);
-            writeFunc(pinGreen, ledBrightness);
-            writeFunc(pinBlue, ledBrightness);
+            writeFunc(PIN_RED, ledBrightness);
+            writeFunc(PIN_GREEN, ledBrightness);
+            writeFunc(PIN_BLUE, ledBrightness);
             break;
     }
 #endif
@@ -601,54 +481,6 @@ void setLED(uint8_t color, int pinRed, int pinGreen, int pinBlue) {
 void analogWriteWrapper(uint8_t pin, uint8_t value) {
     analogWrite(pin, value);
 }
-
-//Set the color of the LED strip, except for the status LED
-void setSTRIP(uint8_t color) {
-    if(numTallyLEDs > 0 && tallyLEDs[0] != color_led[color]) {
-        for (int i = 0; i < numTallyLEDs; i++) {
-            tallyLEDs[i] = color_led[color];
-        }
-        neopixelsUpdated = true;
-#ifdef DEBUG_LED_STRIP
-        Serial.println("Tally:  ");
-        printLeds();
-#endif
-    }
-}
-
-//Set the single status LED (last LED)
-void setStatusLED(uint8_t color) {
-    if (numStatusLEDs > 0 && statusLED[0] != color_led[color]) {
-        for (int i = 0; i < numStatusLEDs; i++) {
-            statusLED[i] = color_led[color];
-            if (color == LED_ORANGE) {
-                statusLED[i].fadeToBlackBy(230);
-            } else {
-                statusLED[i].fadeToBlackBy(0);
-            }
-        }
-        neopixelsUpdated = true;
-#ifdef DEBUG_LED_STRIP
-        Serial.println("Status: ");
-        printLeds();
-#endif
-    }
-}
-
-#ifdef DEBUG_LED_STRIP
-void printLeds() {
-    for (int i = 0; i < settings.neopixelsAmount; i++) {
-        Serial.print(i);
-        Serial.print(", RGB: ");
-        Serial.print(leds[i].r);
-        Serial.print(", ");
-        Serial.print(leds[i].g);
-        Serial.print(", ");
-        Serial.println(leds[i].b);
-    }
-    Serial.println();
-}
-#endif
 
 int getTallyState(uint16_t tallyNo) {
 #ifndef TALLY_TEST_SERVER
@@ -692,9 +524,10 @@ int getLedColor(int tallyMode, int tallyNo) {
 
 //Serve setup web page to client, by sending HTML with the correct variables
 void handleRoot() {
-    String html = "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width,initial-scale=1.0\"><title>Tally Light setup</title></head><script>function switchIpField(e){console.log(\"switch\");console.log(e);var target=e.srcElement||e.target;var maxLength=parseInt(target.attributes[\"maxlength\"].value,10);var myLength=target.value.length;if(myLength>=maxLength){var next=target.nextElementSibling;if(next!=null){if(next.className.includes(\"IP\")){next.focus();}}}else if(myLength==0){var previous=target.previousElementSibling;if(previous!=null){if(previous.className.includes(\"IP\")){previous.focus();}}}}function ipFieldFocus(e){console.log(\"focus\");console.log(e);var target=e.srcElement||e.target;target.select();}function load(){var containers=document.getElementsByClassName(\"IP\");for(var i=0;i<containers.length;i++){var container=containers[i];container.oninput=switchIpField;container.onfocus=ipFieldFocus;}containers=document.getElementsByClassName(\"tIP\");for(var i=0;i<containers.length;i++){var container=containers[i];container.oninput=switchIpField;container.onfocus=ipFieldFocus;}toggleStaticIPFields();}function toggleStaticIPFields(){var enabled=document.getElementById(\"staticIP\").checked;document.getElementById(\"staticIPHidden\").disabled=enabled;var staticIpFields=document.getElementsByClassName('tIP');for(var i=0;i<staticIpFields.length;i++){staticIpFields[i].disabled=!enabled;}}</script><style>a{color:#0F79E0}</style><body style=\"font-family:Verdana;white-space:nowrap;\"onload=\"load()\"><table cellpadding=\"2\"style=\"width:100%\"><tr bgcolor=\"#777777\"style=\"color:#ffffff;font-size:.8em;\"><td colspan=\"3\"><h1>&nbsp;" +
-    (String)DISPLAY_NAME +
-    " setup</h1><h2>&nbsp;Status:</h2></td></tr><tr><td><br></td><td></td><td style=\"width:100%;\"></td></tr><tr><td>Connection Status:</td><td colspan=\"2\">";
+    String html = "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width,initial-scale=1.0\"><title>Tally Light setup</title></head><script>function switchIpField(e){console.log(\"switch\");console.log(e);var target=e.srcElement||e.target;var maxLength=parseInt(target.attributes[\"maxlength\"].value,10);var myLength=target.value.length;if(myLength>=maxLength){var next=target.nextElementSibling;if(next!=null){if(next.className.includes(\"IP\")){next.focus();}}}else if(myLength==0){var previous=target.previousElementSibling;if(previous!=null){if(previous.className.includes(\"IP\")){previous.focus();}}}}function ipFieldFocus(e){console.log(\"focus\");console.log(e);var target=e.srcElement||e.target;target.select();}function load(){var containers=document.getElementsByClassName(\"IP\");for(var i=0;i<containers.length;i++){var container=containers[i];container.oninput=switchIpField;container.onfocus=ipFieldFocus;}containers=document.getElementsByClassName(\"tIP\");for(var i=0;i<containers.length;i++){var container=containers[i];container.oninput=switchIpField;container.onfocus=ipFieldFocus;}toggleStaticIPFields();}function toggleStaticIPFields(){var enabled=document.getElementById(\"staticIP\").checked;document.getElementById(\"staticIPHidden\").disabled=enabled;var staticIpFields=document.getElementsByClassName('tIP');for(var i=0;i<staticIpFields.length;i++){staticIpFields[i].disabled=!enabled;}}</script><style>a{color:#0F79E0}</style><body style=\"font-family:Verdana;white-space:nowrap;\"onload=\"load()\">";
+    html += "<table cellpadding=\"2\"style=\"width:100%\"><tr bgcolor=\"#777777\"style=\"color:#ffffff;font-size:.8em;\"><td colspan=\"3\"><h1 style=\"color:#000000\">&nbsp;";
+    html += (String)DISPLAY_NAME;
+    html += " setup</h1><hr><h2>&nbsp;Status:</h2></td></tr><tr><td><br></td><td></td><td style=\"width:100%;\"></td></tr><tr><td>Connection Status:</td><td colspan=\"2\">";
     switch (WiFi.status()) {
         case WL_CONNECTED:
             html += "Connected to network";
@@ -731,9 +564,7 @@ void handleRoot() {
     // html += " V</td></tr>";
     html += "<tr><td>Static IP:</td><td colspan=\"2\">";
     html += settings.staticIP == true ? "True" : "False";
-    html += "</td></tr><tr><td>" +
-    (String)DISPLAY_NAME +
-    " IP:</td><td colspan=\"2\">";
+    html += "</td></tr><tr><td>This device IP:</td><td colspan=\"2\">";
     html += WiFi.localIP().toString();
     html += "</td></tr><tr><td>Subnet mask: </td><td colspan=\"2\">";
     html += WiFi.subnetMask().toString();
@@ -765,57 +596,25 @@ void handleRoot() {
 #endif
     html += "\"required/></td></tr><tr><td><br></td></tr><tr><td>Tally Light number: </td><td><input type=\"number\"size=\"5\"min=\"1\"max=\"41\"name=\"tNo\"value=\"";
     html += (settings.tallyNo + 1);
-    html += "\"required/></td></tr><tr><td>Tally Light mode (LED 1):&nbsp;</td><td><select name=\"tModeLED1\"><option value=\"";
+    html += "\"required/></td></tr><tr><td>Tally Light mode:&nbsp;</td><td><select name=\"tModeLED1\"><option value=\"";
     html += (String) MODE_NORMAL + "\"";
-    if (settings.tallyModeLED1 == MODE_NORMAL)
+    if (settings.tallyModeLED == MODE_NORMAL)
         html += "selected";
     html += ">Normal</option><option value=\"";
     html += (String) MODE_PREVIEW_STAY_ON + "\"";
-    if (settings.tallyModeLED1 == MODE_PREVIEW_STAY_ON)
+    if (settings.tallyModeLED == MODE_PREVIEW_STAY_ON)
         html += "selected";
     html += ">Preview stay on</option><option value=\"";
     html += (String) MODE_PROGRAM_ONLY + "\"";
-    if (settings.tallyModeLED1 == MODE_PROGRAM_ONLY)
+    if (settings.tallyModeLED == MODE_PROGRAM_ONLY)
         html += "selected";
     html += ">Program only</option><option value=\"";
     html += (String) MODE_ON_AIR + "\"";
-    if (settings.tallyModeLED1 == MODE_ON_AIR)
-        html += "selected";
-    html += ">On Air</option></select></td></tr><tr><td>Tally Light mode (LED 2):</td><td><select name=\"tModeLED2\"><option value=\"";
-    html += (String) MODE_NORMAL + "\"";
-    if (settings.tallyModeLED2 == MODE_NORMAL)
-        html += "selected";
-    html += ">Normal</option><option value=\"";
-    html += (String) MODE_PREVIEW_STAY_ON + "\"";
-    if (settings.tallyModeLED2 == MODE_PREVIEW_STAY_ON)
-        html += "selected";
-    html += ">Preview stay on</option><option value=\"";
-    html += (String) MODE_PROGRAM_ONLY + "\"";
-    if (settings.tallyModeLED2 == MODE_PROGRAM_ONLY)
-        html += "selected";
-    html += ">Program only</option><option value=\"";
-    html += (String)MODE_ON_AIR + "\"";
-    if (settings.tallyModeLED2 == MODE_ON_AIR)
+    if (settings.tallyModeLED == MODE_ON_AIR)
         html += "selected";
     html += ">On Air</option></select></td></tr><tr><td> Led brightness: </td><td><input type=\"number\"size=\"5\"min=\"0\"max=\"255\"name=\"ledBright\"value=\"";
     html += settings.ledBrightness;
-    html += "\"required/></td></tr><tr><td><br></td></tr><tr><td>Amount of Neopixels:</td><td><input type=\"number\"size=\"5\"min=\"0\"max=\"1000\"name=\"neoPxAmount\"value=\"";
-    html += settings.neopixelsAmount;
-    html += "\"required/></td></tr><tr><td>Neopixel status LED: </td><td><select name=\"neoPxStatus\"><option value=\"";
-    html += (String) NEOPIXEL_STATUS_FIRST + "\"";
-    if (settings.neopixelStatusLEDOption == NEOPIXEL_STATUS_FIRST)
-        html += "selected";
-    html += ">First LED</option><option value=\"";
-    html += (String) NEOPIXEL_STATUS_LAST + "\"";
-    if (settings.neopixelStatusLEDOption == NEOPIXEL_STATUS_LAST)
-        html += "selected";
-    html += ">Last LED</option><option value=\"";
-    html += (String) NEOPIXEL_STATUS_NONE + "\"";
-    if (settings.neopixelStatusLEDOption == NEOPIXEL_STATUS_NONE)
-        html += "selected";
-    html += ">None</option></select></td></tr><tr><td> Neopixel brightness: </td><td><input type=\"number\"size=\"5\"min=\"0\"max=\"255\"name=\"neoPxBright\"value=\"";
-    html += settings.neopixelBrightness;
-    html +=  "\"required/></td></tr><tr><td><br></td></tr><tr><td>Network name(SSID): </td><td><input type =\"text\"size=\"30\"maxlength=\"30\"name=\"ssid\"value=\"";
+    html += "\"required/></td></tr><tr><td><br></td></tr><tr><td><br></td></tr><tr><td>Network name(SSID): </td><td><input type =\"text\"size=\"30\"maxlength=\"30\"name=\"ssid\"value=\"";
     html += getSSID();
     html += "\"required/></td></tr><tr><td>Network password: </td><td><input type=\"password\"size=\"30\"maxlength=\"30\"name=\"pwd\"pattern=\"^$|.{8,32}\"value=\"";
     if (WiFi.isConnected()) //As a minimum security meassure, to only send the wifi password if it's currently connected to the given network.
@@ -823,9 +622,7 @@ void handleRoot() {
     html += "\"/></td></tr><tr><td><br></td></tr><tr><td>Use static IP: </td><td><input type=\"hidden\"id=\"staticIPHidden\"name=\"staticIP\"value=\"false\"/><input id=\"staticIP\"type=\"checkbox\"name=\"staticIP\"value=\"true\"onchange=\"toggleStaticIPFields()\"";
     if (settings.staticIP)
         html += "checked";
-    html += "/></td></tr><tr><td>" +
-    (String)DISPLAY_NAME +
-    " IP: </td><td><input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"tIP1\"pattern=\"\\d{0,3}\"value=\"";
+    html += "/></td></tr><tr><td>This device IP: </td><td><input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"tIP1\"pattern=\"\\d{0,3}\"value=\"";
     html += settings.tallyIP[0];
     html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"tIP2\"pattern=\"\\d{0,3}\"value=\"";
     html += settings.tallyIP[1];
@@ -861,16 +658,17 @@ void handleRoot() {
     html += settings.switcherIP[3];
     html += "\"required/></tr>";
 #endif
-    html += "<tr><td><br></td></tr><tr><td/><td style=\"float: right;\"><input type=\"submit\"value=\"Save Changes\"/></td></tr></form><tr bgcolor=\"#cccccc\"style=\"font-size: .8em;\"><td colspan=\"3\"><p>&nbsp;&copy; 2020-2022 <a href=\"https://aronhetlam.github.io/\">Aron N. Het Lam</a></p><p>&nbsp;Based on ATEM libraries for Arduino by <a href=\"https://www.skaarhoj.com/\">SKAARHOJ</a></p></td></tr></table></body></html>";
+    html += "<tr><td><br></td></tr><tr><td/><td style=\"float: right;\"><input type=\"submit\"value=\"Save Changes\"/></td></tr></form><tr bgcolor=\"#cccccc\"style=\"font-size: .8em;\"><td colspan=\"3\"><p>&nbsp;&copy; 2020-2022 <a href=\"https://aronhetlam.github.io/\">Aron N. Het Lam</a></p><p>&nbsp;Based on ATEM libraries for Arduino by <a href=\"https://www.skaarhoj.com/\">SKAARHOJ</a></p><p>Ver: ";
+    html += String(VER) + " - Compilation " + String(__DATE__) + " " + String(__TIME__) +"</p></td></tr></table></body></html>";
     server.send(200, "text/html", html);
 }
 
 //Save new settings from client in EEPROM and restart the ESP8266 module
 void handleSave() {
     if (server.method() != HTTP_POST) {
-        server.send(405, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
+        server.send(405, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title><meta http-equiv=\"refresh\" content=\"5;url=/\" /></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
     (String)DISPLAY_NAME +
-    " setup</h1></td></tr></table><br>Request without posting settings not allowed</body></html>");
+    " setup</h1></td></tr></table><br>Request without posting settings not allowed<br><br>Redirecting to main page...</body></html>");
     } else {
         String ssid;
         String pwd;
@@ -883,17 +681,9 @@ void handleSave() {
             if (var == "tName") {
                 val.toCharArray(settings.tallyName, (uint8_t)32);
             } else if (var == "tModeLED1") {
-                settings.tallyModeLED1 = val.toInt();
-            } else if (var == "tModeLED2") {
-                settings.tallyModeLED2 = val.toInt();
+                settings.tallyModeLED = val.toInt();
             } else if (var == "ledBright") {
                 settings.ledBrightness = val.toInt();
-            } else if (var == "neoPxAmount") {
-                settings.neopixelsAmount = val.toInt();
-            } else if (var == "neoPxStatus") {
-                settings.neopixelStatusLEDOption = val.toInt();
-            } else if (var == "neoPxBright") {
-                settings.neopixelBrightness = val.toInt();
             } else if (var == "tNo") {
                 settings.tallyNo = val.toInt() - 1;
             } else if (var == "ssid") {
@@ -941,9 +731,9 @@ void handleSave() {
             EEPROM.put(0, settings);
             EEPROM.commit();
 
-            server.send(200, "text/html", (String)"<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title></head><body><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"font-family:Verdana;color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
+            server.send(200, "text/html", (String)"<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title><meta http-equiv=\"refresh\" content=\"5;url=/\" /></head><body><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"font-family:Verdana;color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
             (String)DISPLAY_NAME +
-            " setup</h1></td></tr></table><br>Settings saved successfully.</body></html>");
+            " setup</h1></td></tr></table><br>Settings saved successfully.<br><br>Redirecting to main page...</body></html>");
 
             // Delay to let data be saved, and the response to be sent properly to the client
             server.close(); // Close server to flush and ensure the response gets to the client
