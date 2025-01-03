@@ -166,6 +166,107 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password)
 
 }
 
+String htmlHead(bool redirectToMain) {
+    String head ="<head>"
+    "<meta charset=\"ASCII\">"
+    "<meta name=\"viewport\"content=\"width=device-width,initial-scale=1.0\">"
+    "<title>Tally Light setup</title>"
+    "<style>"
+        "a{color:#0F79E0}"
+        "body {"
+            "font-family: sans-serif;"
+            "background-color: #f4f4f4;"
+            "margin: 60px;"
+            "display: flex;"
+            "flex-direction: column;"
+            "align-items: center;"
+        "}"
+        ".container {"
+            "background-color: white;"
+            "border-radius: 5px;"
+            "box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);"
+            "padding: 20px;"
+            "margin-bottom: 20px;"
+            "width: 600px;"
+            "max-width: 90%;"
+        "}"
+        "h1, h2 {"
+            "color: #333;"
+            "margin-bottom: 10px;"
+        "}"
+        "label {"
+            "display: inline;"
+            "margin-bottom: 5px;"
+            "font-weight: bold;"
+        "}"
+        "input[type=\"text\"],"
+        "input[type=\"password\"],"
+        "input[type=\"checkbox\"],"
+        "input[type=\"file\"],"
+        "input[type=\"number\"],"
+        "select {"
+            "width: 100%;"
+            "padding: 8px;"
+            "margin-bottom: 15px;"
+            "box-sizing: border-box;"
+        "}"
+        "input[type=\"checkbox\"] {"
+            "width: auto;"
+            "margin-right: 10px;"
+        "}"
+        ".ip-fields {"
+            "display: flex;"
+            "justify-content: space-between;"
+        "}"
+        ".ip-fields input {"
+            "width: calc(23% - 10px);"
+            "margin-right: 5px;"
+        "}"
+        "input[type=\"submit\"],"
+        "button {"
+            "padding: 10px 20px;"
+            "background-color: #28a745;"
+            "color: white;"
+            "border: none;"
+            "border-radius: 5px;"
+            "cursor: pointer;"
+            "transition: background-color 0.3s ease;"
+            "margin: 5px 5px 5px"
+        "}"
+        "input[type=\"submit\"]:hover,"
+        "button:hover {"
+            "background-color: #218838;"
+        "}"
+        ".status p {"
+            "margin-bottom: 5px;"
+        "}"
+        "footer {"
+            "position: fixed;"
+            "bottom: 0;"
+            "left: 0;"
+            "width: 100%;"
+            "background-color: #333;"
+            "color: white;"
+            "text-align: center;"
+        "}"
+    "</style>";
+
+    if (redirectToMain) {
+        head += "<meta http-equiv=\"refresh\" content=\"5;url=/\" /></head>";
+    } else {
+        head += "</head>";
+    }
+
+    return head;
+}
+    
+
+String htmlFooter = "<footer>"
+    "&nbsp;&copy; 2025 <a href=\"https://github.com/sirk0mt\">Mateusz Sirko</a> for <a href=\"https://deltapix.pl/\">DELTA-PIX</a><br>"
+    "&nbsp;Based on <a href=\"https://aronhetlam.github.io/\">Aron N. Het Lam</a> project and ATEM libraries for Arduino by <a href=\"https://www.skaarhoj.com/\">SKAARHOJ</a><br>"
+    "Ver: "+ String(VER) + " - Compilation " + String(__DATE__) + " " + String(__TIME__) +"<br>"
+"</footer>";
+
 String getConnectionStatusString() {
     switch (WiFi.status()) {
         case WL_CONNECTED:
@@ -642,89 +743,7 @@ int getLedColor(int tallyMode, int tallyNo) {
 //Serve setup web page to client, by sending HTML with the correct variables
 void handleRoot() {
     server.send(200, "text/html", "<!DOCTYPE html><html>"
-        "<head>"
-            "<meta charset=\"ASCII\">"
-            "<meta name=\"viewport\"content=\"width=device-width,initial-scale=1.0\">"
-            "<title>Tally Light setup</title>"
-            "<style>"
-                "a{color:#0F79E0}"
-                "body {"
-                    "font-family: sans-serif;"
-                    "background-color: #f4f4f4;"
-                    "margin: 20px;"
-                    "display: flex;"
-                    "flex-direction: column;"
-                    "align-items: center;"
-                "}"
-                ".container {"
-                    "background-color: white;"
-                    "border-radius: 5px;"
-                    "box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);"
-                    "padding: 20px;"
-                    "margin-bottom: 20px;"
-                    "width: 600px;"
-                    "max-width: 90%;"
-                "}"
-                "h1, h2 {"
-                    "color: #333;"
-                    "margin-bottom: 10px;"
-                "}"
-                "label {"
-                    "display: inline;"
-                    "margin-bottom: 5px;"
-                    "font-weight: bold;"
-                "}"
-                "input[type=\"text\"],"
-                "input[type=\"password\"],"
-                "input[type=\"checkbox\"],"
-                "input[type=\"file\"],"
-                "input[type=\"number\"],"
-                "select {"
-                    "width: 100%;"
-                    "padding: 8px;"
-                    "margin-bottom: 15px;"
-                    "box-sizing: border-box;"
-                "}"
-                "input[type=\"checkbox\"] {"
-                    "width: auto;"
-                    "margin-right: 10px;"
-                "}"
-                ".ip-fields {"
-                    "display: flex;"
-                    "justify-content: space-between;"
-                "}"
-                ".ip-fields input {"
-                    "width: calc(23% - 10px);"
-                    "margin-right: 5px;"
-                "}"
-                "input[type=\"submit\"],"
-                "button {"
-                    "padding: 10px 20px;"
-                    "background-color: #28a745;"
-                    "color: white;"
-                    "border: none;"
-                    "border-radius: 5px;"
-                    "cursor: pointer;"
-                    "transition: background-color 0.3s ease;"
-                "}"
-                "input[type=\"submit\"]:hover,"
-                "button:hover {"
-                    "background-color: #218838;"
-                "}"
-                ".status p {"
-                    "margin-bottom: 5px;"
-                "}"
-                "footer {"
-                    "position: fixed;"
-                    "bottom: 0;"
-                    "left: 0;"
-                    "width: 100%;"
-                    "background-color: #333;"
-                    "color: white;"
-                    "text-align: center;"
-                "}"
-            "</style>"
-        "</head>"
+        + htmlHead(false) +
         "<script>"
             "function switchIpField(e){"
                 "console.log(\"switch\");"
@@ -780,6 +799,9 @@ void handleRoot() {
             "function restart() {"
                 "window.location.href = '/restart';"
             "}"
+            "function networkClick() {"
+                "window.location.href = '/networks';"
+            "}"
         "</script>"
         "<body onload=\"load()\">"
             "<h1>" + (String)DISPLAY_NAME + " setup</h1>"
@@ -821,6 +843,9 @@ void handleRoot() {
                     "<input type =\"text\"maxlength=\"30\"name=\"ssid\"value=\"" +  getSSID() + "\"required/>"
                     "<label>Network password:</label>"
                     "<input type=\"password\"maxlength=\"30\"name=\"pwd\"pattern=\"^$|.{8,32}\"value=\"" +  WiFi.psk() + "\"/>"
+                    "<br>"
+                    "<button type=\"button\" onclick=\"networkClick()\">See available networks</button>"
+                    "<hr>"
                     "<label>Use static IP:</label>"
                     "<input type=\"hidden\"id=\"staticIPHidden\"name=\"staticIP\"value=\"false\"/>"
                     "<input id=\"staticIP\"type=\"checkbox\"name=\"staticIP\"value=\"true\"onchange=\"toggleStaticIPFields()\"" + (settings.staticIP == true ? "checked" : "") + "/>"
@@ -864,11 +889,7 @@ void handleRoot() {
                     "<input type='submit' value='Update Firmware'>"
                 "</form>"
             "</div>"
-            "<footer>"
-                "&nbsp;&copy; 2020-2022 <a href=\"https://aronhetlam.github.io/\">Aron N. Het Lam</a><br>"
-                "&nbsp;Based on ATEM libraries for Arduino by <a href=\"https://www.skaarhoj.com/\">SKAARHOJ</a><br>"
-                "Ver: "+ String(VER) + " - Compilation " + String(__DATE__) + " " + String(__TIME__) +"<br>"
-            "</footer>"
+            + htmlFooter +
         "</body>"
     "</html>");
 }
@@ -876,9 +897,12 @@ void handleRoot() {
 //Save new settings from client in EEPROM and restart the ESP8266 module
 void handleSave() {
     if (server.method() != HTTP_POST) {
-        server.send(405, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title><meta http-equiv=\"refresh\" content=\"5;url=/\" /></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
-    (String)DISPLAY_NAME +
-    " setup</h1></td></tr></table><br>Request without posting settings not allowed<br><br>Redirecting to main page...</body></html>");
+        server.send(405, "text/html", "<!DOCTYPE html><html>" + htmlHead(true) + 
+            "<body><div class=\"container\">"
+                "<h2>Error</h2>"
+                "<hr>"
+                "<p>Request without posting settings not allowed<br><br>Redirecting to main page...</p>"
+            "</div></body></html>");
     } else {
         String ssid;
         String pwd;
@@ -941,9 +965,12 @@ void handleSave() {
             EEPROM.put(0, settings);
             EEPROM.commit();
 
-            server.send(200, "text/html", (String)"<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title><meta http-equiv=\"refresh\" content=\"5;url=/\" /></head><body><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"font-family:Verdana;color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
-            (String)DISPLAY_NAME +
-            " setup</h1></td></tr></table><br>Settings saved successfully.<br><br>Redirecting to main page...</body></html>");
+            server.send(200, "text/html", (String)"<!DOCTYPE html><html>" + htmlHead(true) + 
+            "<body><div class=\"container\">"
+                "<h2>Settings saved successfully</h2>"
+                "<hr>"
+                "<p>Redirecting to main page...</p>"
+            "</div></body></html>");
 
             // Delay to let data be saved, and the response to be sent properly to the client
             server.close(); // Close server to flush and ensure the response gets to the client
@@ -990,9 +1017,13 @@ void handleFirmwareUpload() {
 void handleFirmwareUpdate() {
     if (!Update.hasError()) {
         Serial.println("Restarting...");
-        server.send(200, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title><meta http-equiv=\"refresh\" content=\"5;url=/\" /></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
-    (String)DISPLAY_NAME +
-    " setup</h1></td></tr></table><br>Updated successfull<br><br>Redirecting to main page...</body></html>");
+        server.send(200, "text/html", "<!DOCTYPE html><html>" + htmlHead(true) + 
+            "<body><div class=\"container\">"
+                "<h2>Successfully updated</h2>"
+                "<hr>"
+                "<p>Redirecting to main page...</p>"
+            "</div></body></html>");
+        delay(100);
         ESP.restart();
     } else {
         server.send(500, "text/plain", "Firmware Update Failed!");
@@ -1000,38 +1031,54 @@ void handleFirmwareUpdate() {
 }
 
 void handleRestart() {
-    server.send(200, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title><meta http-equiv=\"refresh\" content=\"5;url=/\" /></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
-    (String)DISPLAY_NAME +
-    " setup</h1></td></tr></table><br>Rebooting...<br><br>Redirecting to main page...</body></html>");
+    server.send(200, "text/html", "<!DOCTYPE html><html>" + htmlHead(true) + 
+            "<body><div class=\"container\">"
+                "<h2>Rebooting</h2>"
+                "<hr>"
+                "<p>Redirecting to main page...</p>"
+            "</div></body></html>");
     Serial.println("Restarting from webpage...");
+    delay(100);
     ESP.restart();
 }
 
 String networkChoiseSiteHead    = 
-      "<b>Choose a WiFi network:</b>"
-      "<form method='post' action='/save_network'>"
-        "<div>"
-          "<label for='ssid'>SSID</label>"
-          "<input type='text' id='ssid' name='ssid'>"
-        "</div>"
-        "<div>"
-          "<label for='passVal'>Password</label>"
-          "<input type='password' id='passVal' name='password'>"
-        "</div>"
-        "<button type='submit'>Connect</button>"
-      "</form>"
-      "<b>Available Networks</b>";
+    "<!DOCTYPE html><html>" + htmlHead(false) + 
+    "<script>"
+        "function backClick() {"
+                "window.location.href = '/';"
+            "}"
+        "</script>"
+    "<body>"
+        "<div class=\"container\">"
+            "<h2>Set new network credentials</h2>"
+            "<hr>"
+            "<form method='post' action='/save_network'>"
+                "<div>"
+                "<label for='ssid'>SSID</label>"
+                "<input type='text' id='ssid' name='ssid'>"
+                "</div>"
+                "<div>"
+                "<label for='passVal'>Password</label>"
+                "<input type='password' id='passVal' name='password'>"
+                "</div>"
+                "<button type='submit'>Connect</button>"
+                "<button type=\"button\" onclick=\"backClick()\">Cancel and get back</button>"
+            "</form>"
+        "</div>";
 
-String networkChoiseSiteFooter  = 
+String networkChoiseSiteFooter  = htmlFooter +
       "<script>"
         "function copyText(element) {"
           "var textToCopy = element.textContent || element.innerText;"
           "document.getElementById('ssid').value = textToCopy;"
         "}"
-      "</script>";
+      "</script></body></html>";
 
 String listVisibleNetworks() {
-  String networks = "<div>";
+  String networks = "<div class=\"container\">"
+            "<h2>Available Networks</h2>"
+            "<hr>";
   int numNetworks = WiFi.scanNetworks();
   for (int i = 0; i < numNetworks; ++i) {
     networks += "<button type='button' onclick='copyText(this)'>" + WiFi.SSID(i) + "</button>";

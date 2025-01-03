@@ -22,7 +22,7 @@
 #include "ImprovWiFiLibrary.h"
 
 /* v0.0.0 - v(OR).(dev test ver).(dev ver) */
-#define VER "v0.0.2"
+#define VER "v0.0.3"
 
 //Blink LED to show saved tally number
 void blinkTallyNo(uint8_t tallyNo);
