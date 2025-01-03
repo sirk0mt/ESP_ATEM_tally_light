@@ -22,7 +22,7 @@
 #include "ImprovWiFiLibrary.h"
 
 /* v0.0.0 - v(OR).(dev test ver).(dev ver) */
-#define VER "v0.0.1"
+#define VER "v0.0.2"
 
 //Blink LED to show saved tally number
 void blinkTallyNo(uint8_t tallyNo);
@@ -48,6 +48,16 @@ void handleRoot();
 
 //Save new settings from client in EEPROM and restart the ESP8266 module
 void handleSave();
+
+void handleFirmwareUpload();
+
+void handleFirmwareUpdate();
+
+void handleRestart();
+
+void handleNetworks();
+
+String getAvailableNetworksHtml();
 
 //Send 404 to client in case of invalid webpage being requested.
 void handleNotFound();

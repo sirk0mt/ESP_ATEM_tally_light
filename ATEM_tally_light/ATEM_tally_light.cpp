@@ -46,11 +46,14 @@
 #include <esp_wifi.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #else
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #endif
 
+#include <Update.h>
 #include <EEPROM.h>
 #include <ATEMmin.h>
 #include <TallyServer.h>
@@ -163,6 +166,64 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password)
 
 }
 
+String getConnectionStatusString() {
+    switch (WiFi.status()) {
+        case WL_CONNECTED:
+            return "Connected to network";
+        case WL_NO_SSID_AVAIL:
+            return  "Network not found";
+        case WL_CONNECT_FAILED:
+            return  "Invalid password";
+        case WL_IDLE_STATUS:
+            return "Changing state...";
+        case WL_DISCONNECTED:
+            return  "Station mode disabled";
+#if ESP32
+        default:
+#else
+        case -1:
+#endif
+            return  "Timeout";
+    }
+}
+
+String getAtemStatusString() {
+#ifndef TALLY_TEST_SERVER
+    if (atemSwitcher.isRejected())
+        return "Connection rejected - No empty spot";
+    else if (atemSwitcher.isConnected())
+        return "Connected"; // - Wating for initialization";
+    else if (WiFi.status() == WL_CONNECTED)
+        return "Disconnected - No response from switcher";
+    else
+        return "Disconnected - Waiting for WiFi";
+#endif
+    return "THIS IS TEST SERVER";
+}
+
+String getAtemIpString() {
+#ifndef TALLY_TEST_SERVER
+    return (String)settings.switcherIP[0] + '.' + settings.switcherIP[1] + '.' + settings.switcherIP[2] + '.' + settings.switcherIP[3];
+#endif
+    return "THIS IS TEST SERVER";
+}
+
+String getHostMdnsName() {
+#if ESP32
+    return (String)WiFi.getHostname();
+#else
+    return (String)WiFi.hostname();
+#endif
+}
+
+String ifOptionSellected(uint8_t option) {
+    if(settings.tallyModeLED == option){
+        return "selected";
+    } else {
+        return "";
+    }
+}
+
 void blinkTallyNo(uint8_t tallyNo) {
     setLED(LED_OFF);
 
@@ -198,7 +259,6 @@ void setup() {
 
     setLED(LED_YELLOW);
 
-    Serial.println(settings.tallyName);
 
     if (settings.staticIP && settings.tallyIP != IPADDR_NONE) {
         WiFi.config(settings.tallyIP, settings.tallyGateway, settings.tallySubnetMask);
@@ -216,6 +276,13 @@ void setup() {
     WiFi.setAutoReconnect(true);
     WiFi.begin();
 
+    // Start mDNS service
+    if (!MDNS.begin(settings.tallyName)) {
+        Serial.println("Error setting up mDNS responder!");
+    } else {
+        Serial.println("mDNS responder started");
+    }
+
     Serial.println("------------------------");
     Serial.println("Connecting to WiFi...");
     Serial.println("Network name (SSID): " + getSSID());
@@ -223,6 +290,37 @@ void setup() {
     // Initialize and begin HTTP server for handeling the web interface
     server.on("/", handleRoot);
     server.on("/save", handleSave);
+    server.on("/upload", HTTP_POST, handleFirmwareUpdate, handleFirmwareUpload);
+    server.on("/restart", handleRestart);
+    server.on("/networks", handleNetworks);
+    server.on("/save_network", HTTP_POST, [](){
+        if (server.hasArg("ssid") && server.hasArg("password")) { // check if value parameter is present
+            // Save new credentials
+            String ssid = String(server.arg("ssid"));
+            String pwd = String(server.arg("password"));
+
+            server.send(200, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
+            (String)DISPLAY_NAME +
+            " setup</h1></td></tr></table><br>Network changed...<br><br>Please manually go to new IP address, or try to go <a href=\"http://" + String(settings.tallyName) + ".local\">http://" + String(settings.tallyName) + ".local</a></body></html>");
+            
+            // Change into STA mode to disable softAP
+            WiFi.mode(WIFI_STA);
+            delay(100); // Give it time to switch over to STA mode (this is important on the ESP32 at least)
+
+            if (ssid && pwd) {
+                WiFi.persistent(true); // Needed by ESP8266
+                // Pass in 'false' as 5th (connect) argument so we don't waste time trying to connect, just save the new SSID/PSK
+                // 3rd argument is channel - '0' is default. 4th argument is BSSID - 'NULL' is default.
+                WiFi.begin(ssid.c_str(), pwd.c_str(), 0, NULL, false);
+            }
+
+            //Delay to apply settings before restart
+            delay(100);
+            ESP.restart();
+        } else {
+            server.send(200, "text/html", "Wrong parameters");
+        }
+    });
     server.onNotFound(handleNotFound);
     server.begin();
 
@@ -265,6 +363,7 @@ void loop() {
                 Serial.println("------------------------");
                 Serial.println("Connected to WiFi:   " + getSSID());
                 Serial.println("IP:                  " + WiFi.localIP().toString());
+                Serial.println("mDNS address:        http://" + String(settings.tallyName) + ".local");
                 Serial.println("Subnet Mask:         " + WiFi.subnetMask().toString());
                 Serial.println("Gateway IP:          " + WiFi.gatewayIP().toString());
 #ifdef TALLY_TEST_SERVER
@@ -276,7 +375,7 @@ void loop() {
             } else if (firstRun) {
                 firstRun = false;
                 Serial.println("Unable to connect. Serving \"Tally Light setup\" WiFi for configuration, while still trying to connect...");
-                Serial.println("IP for that device in \"Tally Light setup\" WiFi network is 192.168.4.1");
+                Serial.println("IP for that device in \"Tally Light setup\" WiFi network is 192.168.4.1 or mDNS address http://" + String(settings.tallyName) + ".local");
                 WiFi.softAP((String)DISPLAY_NAME + " setup");
                 WiFi.mode(WIFI_AP_STA); // Enable softAP to access web interface in case of no WiFi
                 setLED(LED_WHITE);
@@ -382,6 +481,9 @@ void loop() {
 
     //Handle web interface
     server.handleClient();
+#if ESP8266
+    MDNS.update();  // Keep the mDNS responder alive (optional for ESP8266, not required for ESP32)
+#endif
 }
 
 //Handle the change of states in the program
@@ -539,143 +641,236 @@ int getLedColor(int tallyMode, int tallyNo) {
 
 //Serve setup web page to client, by sending HTML with the correct variables
 void handleRoot() {
-    String html = "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width,initial-scale=1.0\"><title>Tally Light setup</title></head><script>function switchIpField(e){console.log(\"switch\");console.log(e);var target=e.srcElement||e.target;var maxLength=parseInt(target.attributes[\"maxlength\"].value,10);var myLength=target.value.length;if(myLength>=maxLength){var next=target.nextElementSibling;if(next!=null){if(next.className.includes(\"IP\")){next.focus();}}}else if(myLength==0){var previous=target.previousElementSibling;if(previous!=null){if(previous.className.includes(\"IP\")){previous.focus();}}}}function ipFieldFocus(e){console.log(\"focus\");console.log(e);var target=e.srcElement||e.target;target.select();}function load(){var containers=document.getElementsByClassName(\"IP\");for(var i=0;i<containers.length;i++){var container=containers[i];container.oninput=switchIpField;container.onfocus=ipFieldFocus;}containers=document.getElementsByClassName(\"tIP\");for(var i=0;i<containers.length;i++){var container=containers[i];container.oninput=switchIpField;container.onfocus=ipFieldFocus;}toggleStaticIPFields();}function toggleStaticIPFields(){var enabled=document.getElementById(\"staticIP\").checked;document.getElementById(\"staticIPHidden\").disabled=enabled;var staticIpFields=document.getElementsByClassName('tIP');for(var i=0;i<staticIpFields.length;i++){staticIpFields[i].disabled=!enabled;}}</script><style>a{color:#0F79E0}</style><body style=\"font-family:Verdana;white-space:nowrap;\"onload=\"load()\">";
-    html += "<table cellpadding=\"2\"style=\"width:100%\"><tr bgcolor=\"#777777\"style=\"color:#ffffff;font-size:.8em;\"><td colspan=\"3\"><h1 style=\"color:#000000\">&nbsp;";
-    html += (String)DISPLAY_NAME;
-    html += " setup</h1><hr><h2>&nbsp;Status:</h2></td></tr><tr><td><br></td><td></td><td style=\"width:100%;\"></td></tr><tr><td>Connection Status:</td><td colspan=\"2\">";
-    switch (WiFi.status()) {
-        case WL_CONNECTED:
-            html += "Connected to network";
-            break;
-        case WL_NO_SSID_AVAIL:
-            html += "Network not found";
-            break;
-        case WL_CONNECT_FAILED:
-            html += "Invalid password";
-            break;
-        case WL_IDLE_STATUS:
-            html += "Changing state...";
-            break;
-        case WL_DISCONNECTED:
-            html += "Station mode disabled";
-            break;
-#if ESP32
-        default:
-#else
-        case -1:
-#endif
-            html += "Timeout";
-            break;
-    }
-
-    html += "</td></tr><tr><td>Network name (SSID):</td><td colspan=\"2\">";
-    html += getSSID();
-    html += "</td></tr><tr><td><br></td></tr><tr><td>Signal strength:</td><td colspan=\"2\">";
-    html += WiFi.RSSI();
-    html += " dBm</td></tr>";
-    //Commented out for users without batteries
-    // html += "<tr><td><br></td></tr><tr><td>Battery voltage:</td><td colspan=\"2\">";
-    // html += dtostrf(uBatt, 0, 3, buffer);
-    // html += " V</td></tr>";
-    html += "<tr><td>Static IP:</td><td colspan=\"2\">";
-    html += settings.staticIP == true ? "True" : "False";
-    html += "</td></tr><tr><td>This device IP:</td><td colspan=\"2\">";
-    html += WiFi.localIP().toString();
-    html += "</td></tr><tr><td>Subnet mask: </td><td colspan=\"2\">";
-    html += WiFi.subnetMask().toString();
-    html += "</td></tr><tr><td>Gateway: </td><td colspan=\"2\">";
-    html += WiFi.gatewayIP().toString();
-    html += "</td></tr><tr><td><br></td></tr>";
-#ifndef TALLY_TEST_SERVER
-    html += "<tr><td>ATEM switcher status:</td><td colspan=\"2\">";
-    // if (atemSwitcher.hasInitialized())
-    //     html += "Connected - Initialized";
-    // else
-    if (atemSwitcher.isRejected())
-        html += "Connection rejected - No empty spot";
-    else if (atemSwitcher.isConnected())
-        html += "Connected"; // - Wating for initialization";
-    else if (WiFi.status() == WL_CONNECTED)
-        html += "Disconnected - No response from switcher";
-    else
-        html += "Disconnected - Waiting for WiFi";
-    html += "</td></tr><tr><td>ATEM switcher IP:</td><td colspan=\"2\">";
-    html += (String)settings.switcherIP[0] + '.' + settings.switcherIP[1] + '.' + settings.switcherIP[2] + '.' + settings.switcherIP[3];
-    html += "</td></tr><tr><td><br></td></tr>";
-#endif
-    html += "<tr bgcolor=\"#777777\"style=\"color:#ffffff;font-size:.8em;\"><td colspan=\"3\"><h2>&nbsp;Settings:</h2></td></tr><tr><td><br></td></tr><form action=\"/save\"method=\"post\"><tr><td>Tally Light name: </td><td><input type=\"text\"size=\"30\"maxlength=\"30\"name=\"tName\"value=\"";
-#if ESP32
-    html += WiFi.getHostname();
-#else
-    html += WiFi.hostname();
-#endif
-    html += "\"required/></td></tr><tr><td><br></td></tr><tr><td>Tally Light number: </td><td><input type=\"number\"size=\"5\"min=\"1\"max=\"41\"name=\"tNo\"value=\"";
-    html += (settings.tallyNo + 1);
-    html += "\"required/></td></tr><tr><td>Tally Light mode:&nbsp;</td><td><select name=\"tModeLED1\"><option value=\"";
-    html += (String) MODE_NORMAL + "\"";
-    if (settings.tallyModeLED == MODE_NORMAL)
-        html += "selected";
-    html += ">Normal</option><option value=\"";
-    html += (String) MODE_PREVIEW_STAY_ON + "\"";
-    if (settings.tallyModeLED == MODE_PREVIEW_STAY_ON)
-        html += "selected";
-    html += ">Preview stay on</option><option value=\"";
-    html += (String) MODE_PROGRAM_ONLY + "\"";
-    if (settings.tallyModeLED == MODE_PROGRAM_ONLY)
-        html += "selected";
-    html += ">Program only</option><option value=\"";
-    html += (String) MODE_ON_AIR + "\"";
-    if (settings.tallyModeLED == MODE_ON_AIR)
-        html += "selected";
-    html += ">On Air</option></select></td></tr><tr><td> Led brightness: </td><td><input type=\"number\"size=\"5\"min=\"0\"max=\"255\"name=\"ledBright\"value=\"";
-    html += settings.ledBrightness;
-    html += "\"required/></td></tr><tr><td><br></td></tr><tr><td><br></td></tr><tr><td>Network name(SSID): </td><td><input type =\"text\"size=\"30\"maxlength=\"30\"name=\"ssid\"value=\"";
-    html += getSSID();
-    html += "\"required/></td></tr><tr><td>Network password: </td><td><input type=\"password\"size=\"30\"maxlength=\"30\"name=\"pwd\"pattern=\"^$|.{8,32}\"value=\"";
-    if (WiFi.isConnected()) //As a minimum security meassure, to only send the wifi password if it's currently connected to the given network.
-        html += WiFi.psk();
-    html += "\"/></td></tr><tr><td><br></td></tr><tr><td>Use static IP: </td><td><input type=\"hidden\"id=\"staticIPHidden\"name=\"staticIP\"value=\"false\"/><input id=\"staticIP\"type=\"checkbox\"name=\"staticIP\"value=\"true\"onchange=\"toggleStaticIPFields()\"";
-    if (settings.staticIP)
-        html += "checked";
-    html += "/></td></tr><tr><td>This device IP: </td><td><input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"tIP1\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallyIP[0];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"tIP2\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallyIP[1];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"tIP3\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallyIP[2];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"tIP4\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallyIP[3];
-    html += "\"required/></td></tr><tr><td>Subnet mask: </td><td><input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"mask1\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallySubnetMask[0];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"mask2\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallySubnetMask[1];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"mask3\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallySubnetMask[2];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"mask4\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallySubnetMask[3];
-    html += "\"required/></td></tr><tr><td>Gateway: </td><td><input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"gate1\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallyGateway[0];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"gate2\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallyGateway[1];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"gate3\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallyGateway[2];
-    html += "\"required/>. <input class=\"tIP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"gate4\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.tallyGateway[3];
-    html += "\"required/></td></tr>";
-#ifndef TALLY_TEST_SERVER
-    html += "<tr><td><br></td></tr><tr><td>ATEM switcher IP: </td><td><input class=\"IP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"aIP1\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.switcherIP[0];
-    html += "\"required/>. <input class=\"IP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"aIP2\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.switcherIP[1];
-    html += "\"required/>. <input class=\"IP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"aIP3\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.switcherIP[2];
-    html += "\"required/>. <input class=\"IP\"type=\"text\"size=\"3\"maxlength=\"3\"name=\"aIP4\"pattern=\"\\d{0,3}\"value=\"";
-    html += settings.switcherIP[3];
-    html += "\"required/></tr>";
-#endif
-    html += "<tr><td><br></td></tr><tr><td/><td style=\"float: right;\"><input type=\"submit\"value=\"Save Changes\"/></td></tr></form><tr bgcolor=\"#cccccc\"style=\"font-size: .8em;\"><td colspan=\"3\"><p>&nbsp;&copy; 2020-2022 <a href=\"https://aronhetlam.github.io/\">Aron N. Het Lam</a></p><p>&nbsp;Based on ATEM libraries for Arduino by <a href=\"https://www.skaarhoj.com/\">SKAARHOJ</a></p><p>Ver: ";
-    html += String(VER) + " - Compilation " + String(__DATE__) + " " + String(__TIME__) +"</p></td></tr></table></body></html>";
-    server.send(200, "text/html", html);
+    server.send(200, "text/html", "<!DOCTYPE html><html>"
+        "<head>"
+            "<meta charset=\"ASCII\">"
+            "<meta name=\"viewport\"content=\"width=device-width,initial-scale=1.0\">"
+            "<title>Tally Light setup</title>"
+            "<style>"
+                "a{color:#0F79E0}"
+                "body {"
+                    "font-family: sans-serif;"
+                    "background-color: #f4f4f4;"
+                    "margin: 20px;"
+                    "display: flex;"
+                    "flex-direction: column;"
+                    "align-items: center;"
+                "}"
+                ".container {"
+                    "background-color: white;"
+                    "border-radius: 5px;"
+                    "box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);"
+                    "padding: 20px;"
+                    "margin-bottom: 20px;"
+                    "width: 600px;"
+                    "max-width: 90%;"
+                "}"
+                "h1, h2 {"
+                    "color: #333;"
+                    "margin-bottom: 10px;"
+                "}"
+                "label {"
+                    "display: inline;"
+                    "margin-bottom: 5px;"
+                    "font-weight: bold;"
+                "}"
+                "input[type=\"text\"],"
+                "input[type=\"password\"],"
+                "input[type=\"checkbox\"],"
+                "input[type=\"file\"],"
+                "input[type=\"number\"],"
+                "select {"
+                    "width: 100%;"
+                    "padding: 8px;"
+                    "margin-bottom: 15px;"
+                    "box-sizing: border-box;"
+                "}"
+                "input[type=\"checkbox\"] {"
+                    "width: auto;"
+                    "margin-right: 10px;"
+                "}"
+                ".ip-fields {"
+                    "display: flex;"
+                    "justify-content: space-between;"
+                "}"
+                ".ip-fields input {"
+                    "width: calc(23% - 10px);"
+                    "margin-right: 5px;"
+                "}"
+                "input[type=\"submit\"],"
+                "button {"
+                    "padding: 10px 20px;"
+                    "background-color: #28a745;"
+                    "color: white;"
+                    "border: none;"
+                    "border-radius: 5px;"
+                    "cursor: pointer;"
+                    "transition: background-color 0.3s ease;"
+                "}"
+                "input[type=\"submit\"]:hover,"
+                "button:hover {"
+                    "background-color: #218838;"
+                "}"
+                ".status p {"
+                    "margin-bottom: 5px;"
+                "}"
+                "footer {"
+                    "position: fixed;"
+                    "bottom: 0;"
+                    "left: 0;"
+                    "width: 100%;"
+                    "background-color: #333;"
+                    "color: white;"
+                    "text-align: center;"
+                "}"
+            "</style>"
+        "</head>"
+        "<script>"
+            "function switchIpField(e){"
+                "console.log(\"switch\");"
+                "console.log(e);"
+                "var target=e.srcElement||e.target;"
+                "var maxLength=parseInt(target.attributes[\"maxlength\"].value,10);"
+                "var myLength=target.value.length;"
+                "if(myLength>=maxLength){"
+                    "var next=target.nextElementSibling;"
+                    "if(next!=null){"
+                        "if(next.className.includes(\"IP\")){"
+                            "next.focus();"
+                        "}"
+                    "}"
+                "}else if(myLength==0){"
+                    "var previous=target.previousElementSibling;"
+                    "if(previous!=null){"
+                        "if(previous.className.includes(\"IP\")){"
+                            "previous.focus();"
+                        "}"
+                    "}"
+                "}"
+            "}"
+            "function ipFieldFocus(e){"
+                "console.log(\"focus\");"
+                "console.log(e);"
+                "var target=e.srcElement||e.target;"
+                "target.select();"
+            "}"
+            "function load(){"
+                "var containers=document.getElementsByClassName(\"IP\");"
+                "for(var i=0;i<containers.length;i++){"
+                    "var container=containers[i];"
+                    "container.oninput=switchIpField;"
+                    "container.onfocus=ipFieldFocus;"
+                "}"
+                "containers=document.getElementsByClassName(\"tIP\");"
+                "for(var i=0;i<containers.length;i++){"
+                    "var container=containers[i];"
+                    "container.oninput=switchIpField;"
+                    "container.onfocus=ipFieldFocus;"
+                "}"
+                "toggleStaticIPFields();"
+            "}"
+            "function toggleStaticIPFields(){"
+                "var enabled=document.getElementById(\"staticIP\").checked;"
+                "document.getElementById(\"staticIPHidden\").disabled=enabled;"
+                "var staticIpFields=document.getElementsByClassName('tIP');"
+                "for(var i=0;i<staticIpFields.length;i++){"
+                    "staticIpFields[i].disabled=!enabled;"
+                "}"
+            "}"
+            "function restart() {"
+                "window.location.href = '/restart';"
+            "}"
+        "</script>"
+        "<body onload=\"load()\">"
+            "<h1>" + (String)DISPLAY_NAME + " setup</h1>"
+            "<div class=\"container\">"
+                "<h2>Status</h2>"
+                "<hr>"
+                "<p><strong>Connection Status:</strong>" + getConnectionStatusString() + "</p>"
+                "<p><strong>Network name (SSID):</strong>" + getSSID() + "</p>"
+                "<p><strong>Signal strength:</strong>" + WiFi.RSSI() + " dBm</p>"
+                "<p><strong>Static IP:</strong>" + (settings.staticIP == true ? "True" : "False") + "</p>"
+                "<p><strong>This device IP:</strong><a href=\"http://" + WiFi.localIP().toString() + "\">" + WiFi.localIP().toString() + "</a></p>"
+                "<p><strong>mDNS address:</strong> <a href=\"http://" + String(settings.tallyName) + ".local\">http://" + String(settings.tallyName) + ".local</a></p>"
+                "<p><strong>Subnet mask:</strong>" + WiFi.subnetMask().toString() + "</p>"
+                "<p><strong>Gateway:</strong>" + WiFi.gatewayIP().toString() + "</p>"
+                "<br>"
+                "<p><strong>ATEM switcher status:</strong>" + getAtemStatusString() + "</p>"
+                "<p><strong>ATEM switcher IP:</strong>" + getAtemIpString() + "</p>"
+                "<button type=\"button\" onclick=\"restart()\">Restart</button>"
+            "</div>"
+            "<div class=\"container\">"
+                "<h2>Settings</h2>"
+                "<hr>"
+                "<form action=\"/save\"method=\"post\">"
+                    "<label>Tally Light name:</label>"
+                    "<input type=\"text\"maxlength=\"30\"name=\"tName\"value=\"" + getHostMdnsName() + "\"required/>"
+                    "<label>Tally Light number:</label>"
+                    "<input type=\"number\"min=\"1\"max=\"41\"name=\"tNo\"value=\"" + String(settings.tallyNo + 1) + "\"required/>"
+                    "<label>Tally Light mode:</label>"
+                    "<select name=\"tModeLED1\">"
+                        "<option value=\"" + (String) MODE_NORMAL + "\"" + ifOptionSellected(MODE_NORMAL) + ">Normal</option>"
+                        "<option value=\"" + (String) MODE_PREVIEW_STAY_ON + "\"" + ifOptionSellected(MODE_PREVIEW_STAY_ON) + ">Preview stay on</option>"
+                        "<option value=\"" + (String) MODE_PROGRAM_ONLY + "\"" + ifOptionSellected(MODE_PROGRAM_ONLY) + ">Program only</option>"
+                        "<option value=\"" + (String) MODE_ON_AIR + "\"" + ifOptionSellected(MODE_ON_AIR) + ">On Air</option>"
+                    "</select>"
+                    "<label>Led brightness:</label>"
+                    "<input type=\"number\"min=\"0\"max=\"255\"name=\"ledBright\"value=\"" + settings.ledBrightness + "\"required/>"
+                    "<hr>"
+                    "<label>Network name(SSID):</label>"
+                    "<input type =\"text\"maxlength=\"30\"name=\"ssid\"value=\"" +  getSSID() + "\"required/>"
+                    "<label>Network password:</label>"
+                    "<input type=\"password\"maxlength=\"30\"name=\"pwd\"pattern=\"^$|.{8,32}\"value=\"" +  WiFi.psk() + "\"/>"
+                    "<label>Use static IP:</label>"
+                    "<input type=\"hidden\"id=\"staticIPHidden\"name=\"staticIP\"value=\"false\"/>"
+                    "<input id=\"staticIP\"type=\"checkbox\"name=\"staticIP\"value=\"true\"onchange=\"toggleStaticIPFields()\"" + (settings.staticIP == true ? "checked" : "") + "/>"
+                    "<label>This device IP:</label>"
+                    "<div class=\"ip-fields\">"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"tIP1\"pattern=\"\\d{0,3}\"value=\"" + settings.tallyIP[0] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"tIP2\"pattern=\"\\d{0,3}\"value=\"" + settings.tallyIP[1] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"tIP3\"pattern=\"\\d{0,3}\"value=\"" + settings.tallyIP[2] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"tIP4\"pattern=\"\\d{0,3}\"value=\"" + settings.tallyIP[3] + "\"required/>"
+                    "</div>"
+                    "<label>Subnet mask:</label>"
+                    "<div class=\"ip-fields\">"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"mask1\"pattern=\"\\d{0,3}\"value=\"" + settings.tallySubnetMask[0] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"mask2\"pattern=\"\\d{0,3}\"value=\"" + settings.tallySubnetMask[1] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"mask3\"pattern=\"\\d{0,3}\"value=\"" + settings.tallySubnetMask[2] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"mask4\"pattern=\"\\d{0,3}\"value=\"" + settings.tallySubnetMask[3] + "\"required/>"
+                    "</div>"
+                    "<label>Gateway:</label>"
+                    "<div class=\"ip-fields\">"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"gate1\"pattern=\"\\d{0,3}\"value=\"" + settings.tallyGateway[0] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"gate2\"pattern=\"\\d{0,3}\"value=\"" + settings.tallyGateway[1] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"gate3\"pattern=\"\\d{0,3}\"value=\"" + settings.tallyGateway[2] + "\"required/>"
+                        "<input class=\"tIP\"type=\"text\"maxlength=\"3\"name=\"gate4\"pattern=\"\\d{0,3}\"value=\"" + settings.tallyGateway[3] + "\"required/>"
+                    "</div>"
+                    "<hr>"
+                    "<label>ATEM switcher IP:</label>"
+                    "<div class=\"ip-fields\">"
+                        "<input class=\"IP\"type=\"text\"maxlength=\"3\"name=\"aIP1\"pattern=\"\\d{0,3}\"value=\"" + settings.switcherIP[0] + "\"required/>"
+                        "<input class=\"IP\"type=\"text\"maxlength=\"3\"name=\"aIP2\"pattern=\"\\d{0,3}\"value=\"" + settings.switcherIP[1] + "\"required/>"
+                        "<input class=\"IP\"type=\"text\"maxlength=\"3\"name=\"aIP3\"pattern=\"\\d{0,3}\"value=\"" + settings.switcherIP[2] + "\"required/>"
+                        "<input class=\"IP\"type=\"text\"maxlength=\"3\"name=\"aIP4\"pattern=\"\\d{0,3}\"value=\"" + settings.switcherIP[3] + "\"required/>"
+                    "</div>"
+                    "<input type=\"submit\"value=\"Save Changes\"/>"
+                "</form>"
+            "</div>"
+            "<div class=\"container\">"
+                "<h2>Firmware update</h2>"
+                "<hr>"
+                "<form method='POST' action='/upload' enctype='multipart/form-data'>"
+                    "<input type='file' name='firmware'>"
+                    "<input type='submit' value='Update Firmware'>"
+                "</form>"
+            "</div>"
+            "<footer>"
+                "&nbsp;&copy; 2020-2022 <a href=\"https://aronhetlam.github.io/\">Aron N. Het Lam</a><br>"
+                "&nbsp;Based on ATEM libraries for Arduino by <a href=\"https://www.skaarhoj.com/\">SKAARHOJ</a><br>"
+                "Ver: "+ String(VER) + " - Compilation " + String(__DATE__) + " " + String(__TIME__) +"<br>"
+            "</footer>"
+        "</body>"
+    "</html>");
 }
 
 //Save new settings from client in EEPROM and restart the ESP8266 module
@@ -770,6 +965,87 @@ void handleSave() {
             ESP.restart();
         }
     }
+}
+
+void handleFirmwareUpload() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+        Serial.printf("Updating Firmware: %s\n", upload.filename.c_str());
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            Update.printError(Serial);
+        }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            Update.printError(Serial);
+        }
+    } else if (upload.status == UPLOAD_FILE_END) {
+        if (Update.end(true)) {
+            Serial.printf("Update Success: %u bytes\n", upload.totalSize);
+        } else {
+            Update.printError(Serial);
+        }
+    }
+}
+
+void handleFirmwareUpdate() {
+    if (!Update.hasError()) {
+        Serial.println("Restarting...");
+        server.send(200, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title><meta http-equiv=\"refresh\" content=\"5;url=/\" /></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
+    (String)DISPLAY_NAME +
+    " setup</h1></td></tr></table><br>Updated successfull<br><br>Redirecting to main page...</body></html>");
+        ESP.restart();
+    } else {
+        server.send(500, "text/plain", "Firmware Update Failed!");
+    }
+}
+
+void handleRestart() {
+    server.send(200, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title><meta http-equiv=\"refresh\" content=\"5;url=/\" /></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
+    (String)DISPLAY_NAME +
+    " setup</h1></td></tr></table><br>Rebooting...<br><br>Redirecting to main page...</body></html>");
+    Serial.println("Restarting from webpage...");
+    ESP.restart();
+}
+
+String networkChoiseSiteHead    = 
+      "<b>Choose a WiFi network:</b>"
+      "<form method='post' action='/save_network'>"
+        "<div>"
+          "<label for='ssid'>SSID</label>"
+          "<input type='text' id='ssid' name='ssid'>"
+        "</div>"
+        "<div>"
+          "<label for='passVal'>Password</label>"
+          "<input type='password' id='passVal' name='password'>"
+        "</div>"
+        "<button type='submit'>Connect</button>"
+      "</form>"
+      "<b>Available Networks</b>";
+
+String networkChoiseSiteFooter  = 
+      "<script>"
+        "function copyText(element) {"
+          "var textToCopy = element.textContent || element.innerText;"
+          "document.getElementById('ssid').value = textToCopy;"
+        "}"
+      "</script>";
+
+String listVisibleNetworks() {
+  String networks = "<div>";
+  int numNetworks = WiFi.scanNetworks();
+  for (int i = 0; i < numNetworks; ++i) {
+    networks += "<button type='button' onclick='copyText(this)'>" + WiFi.SSID(i) + "</button>";
+  }
+  networks += "</div>";
+  return networks;
+}
+
+String getAvailableNetworksHtml() {
+      return networkChoiseSiteHead + String(listVisibleNetworks()) + networkChoiseSiteFooter;
+}
+
+void handleNetworks() {
+    server.send(200, "text/html", getAvailableNetworksHtml());
 }
 
 //Send 404 to client in case of invalid webpage being requested.
