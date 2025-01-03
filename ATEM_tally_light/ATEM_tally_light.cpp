@@ -19,6 +19,7 @@
 */
 
 #include "ATEM_tally_light.hpp"
+#include "logo.h"
 
 #ifndef VERSION
 #define VERSION "dev"
@@ -189,6 +190,17 @@ String htmlHead(bool redirectToMain) {
             "margin-bottom: 20px;"
             "width: 600px;"
             "max-width: 90%;"
+        "}"
+        ".logocontainer {"
+            "background-color: white;"
+            "border-radius: 5px;"
+            "box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);"
+            "padding: 10px;"
+            "margin-bottom: 20px;"
+            "max-width: 600px;"
+        "}"
+        ".logoimg {"
+            "max-width: 600px;"
         "}"
         "h1, h2 {"
             "color: #333;"
@@ -400,9 +412,12 @@ void setup() {
             String ssid = String(server.arg("ssid"));
             String pwd = String(server.arg("password"));
 
-            server.send(200, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>Tally Light setup</title></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp;" +
-            (String)DISPLAY_NAME +
-            " setup</h1></td></tr></table><br>Network changed...<br><br>Please manually go to new IP address, or try to go <a href=\"http://" + String(settings.tallyName) + ".local\">http://" + String(settings.tallyName) + ".local</a></body></html>");
+            server.send(200, "text/html", "<!DOCTYPE html><html>" + htmlHead(false) + 
+            "<body><div class=\"container\">"
+                "<h2>Network changed</h2>"
+                "<hr>"
+                "<p>Please manually go to new IP address, or try to go <a href=\"http://" + String(settings.tallyName) + ".local\">http://" + String(settings.tallyName) + ".local</a> after connect to new saved network</p>"
+            "</div></body></html>");
             
             // Change into STA mode to disable softAP
             WiFi.mode(WIFI_STA);
@@ -805,6 +820,9 @@ void handleRoot() {
         "</script>"
         "<body onload=\"load()\">"
             "<h1>" + (String)DISPLAY_NAME + " setup</h1>"
+            "<div class=\"logocontainer\">"
+               "<img class=\"logoimg\" src='" + String(logo) + "'>"
+            "</div>"
             "<div class=\"container\">"
                 "<h2>Status</h2>"
                 "<hr>"
@@ -1026,7 +1044,12 @@ void handleFirmwareUpdate() {
         delay(100);
         ESP.restart();
     } else {
-        server.send(500, "text/plain", "Firmware Update Failed!");
+        server.send(500, "text/html", "<!DOCTYPE html><html>" + htmlHead(true) + 
+            "<body><div class=\"container\">"
+                "<h2>Firmware Update Failed!</h2>"
+                "<hr>"
+                "<p>Redirecting to main page...</p>"
+            "</div></body></html>");
     }
 }
 
@@ -1097,9 +1120,12 @@ void handleNetworks() {
 
 //Send 404 to client in case of invalid webpage being requested.
 void handleNotFound() {
-    server.send(404, "text/html", "<!DOCTYPE html><html><head><meta charset=\"ASCII\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>" +
-    (String)DISPLAY_NAME +
-    " setup</title></head><body style=\"font-family:Verdana;\"><table bgcolor=\"#777777\"border=\"0\"width=\"100%\"cellpadding=\"1\"style=\"color:#ffffff;font-size:.8em;\"><tr><td><h1>&nbsp Tally Light setup</h1></td></tr></table><br>404 - Page not found</body></html>");
+    server.send(404, "text/html", "<!DOCTYPE html><html>" + htmlHead(true) + 
+            "<body><div class=\"container\">"
+                "<h2>404 - Page not found</h2>"
+                "<hr>"
+                "<p>Redirecting to main page...</p>"
+            "</div></body></html>");
 }
 
 String getSSID() {
