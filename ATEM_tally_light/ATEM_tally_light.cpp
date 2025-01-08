@@ -19,7 +19,7 @@
 */
 
 #include "ATEM_tally_light.hpp"
-#include "logo.h"
+//#include "logo.h"
 
 #ifndef VERSION
 #define VERSION "dev"
@@ -48,13 +48,17 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <Update.h>
 #else
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
+#include <Updater.h>
+#ifndef UPDATE_SIZE_UNKNOWN
+    #define UPDATE_SIZE_UNKNOWN 0xFFFFFFFF
+#endif
 #endif
 
-#include <Update.h>
 #include <EEPROM.h>
 #include <ATEMmin.h>
 #include <TallyServer.h>
@@ -74,7 +78,7 @@
 #else // ESP8266
 //Define LED1 color pins
 #ifndef PIN_RED
-#define PIN_RED    16 // D0
+#define PIN_RED    2  // D4
 #endif
 #ifndef PIN_GREEN
 #define PIN_GREEN  4  // D2
@@ -339,7 +343,9 @@ String ifOptionSellected(uint8_t option) {
 
 void blinkTallyNo(uint8_t tallyNo) {
     setLED(LED_OFF);
-
+    if (tallyNo > 10) {
+        return;
+    }
     for (int i = 0; i < tallyNo + 1; i++) {
         delay(250);
         setLED(LED_BLUE);
@@ -820,9 +826,6 @@ void handleRoot() {
         "</script>"
         "<body onload=\"load()\">"
             "<h1>" + (String)DISPLAY_NAME + " setup</h1>"
-            "<div class=\"logocontainer\">"
-               "<img class=\"logoimg\" src='" + String(logo) + "'>"
-            "</div>"
             "<div class=\"container\">"
                 "<h2>Status</h2>"
                 "<hr>"
