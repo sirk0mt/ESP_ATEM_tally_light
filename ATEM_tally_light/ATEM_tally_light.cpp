@@ -395,12 +395,13 @@ void setup() {
     WiFi.setAutoReconnect(true);
     WiFi.begin();
 
-    // Start mDNS service
+#if ESP32
     if (!MDNS.begin(settings.tallyName)) {
         Serial.println("Error setting up mDNS responder!");
     } else {
-        Serial.println("mDNS responder started");
+       Serial.println("mDNS responder started");
     }
+#endif
 
     Serial.println("------------------------");
     Serial.println("Connecting to WiFi...");
@@ -482,6 +483,17 @@ void loop() {
         case STATE_CONNECTING_TO_WIFI:
             if (WiFi.status() == WL_CONNECTED) {
                 WiFi.mode(WIFI_STA); // Disable softAP if connection is successful
+
+#if ESP8266
+                    if (!MDNS.begin(settings.tallyName)) {
+                        Serial.println("Error setting up mDNS responder!");
+                    } else {
+                        Serial.println("mDNS responder started");
+                    }
+                    
+                    MDNS.addService("http", "tcp", 80);
+#endif
+
                 Serial.println("------------------------");
                 Serial.println("Connected to WiFi:   " + getSSID());
                 Serial.println("IP:                  " + WiFi.localIP().toString());
